@@ -96,9 +96,10 @@ export const privateHarnessParamCases = [
   },
   { field: "__openclawSourceReplyDeliveryRuntime", value: { currentMode: "automatic" } },
   { field: "compactionCountOwner", value: "caller" },
+  { field: "resolveRuntimeContextForTools", value: () => [] },
   { field: "completionCheck", value: { unfinishedPlan: true, checked: false } },
   { field: "preparedSessionTarget", value: { target: {}, assertCurrent: () => undefined } },
   { field: "onContextAccountingEvent", value: () => undefined },
   { field: "onCompactionRequestBudget", value: () => undefined },
-  { field: "resolveRuntimeContextForTools", value: () => [] },
+  { field: "prepareContinuationRetryCount", value: () => undefined },
 ] as const;

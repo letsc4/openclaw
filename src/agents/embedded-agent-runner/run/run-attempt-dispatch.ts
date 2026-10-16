@@ -23,10 +23,11 @@ import { log } from "../logger.js";
 import { remapExplicitSkillSelectionPath, remapSkillReferencePaths } from "../sandbox-skills.js";
 import { prepareEmbeddedSkills } from "../skill-runtime.js";
 import { mapThinkingLevelForProvider } from "../utils.js";
+import { createAttemptContinuationRetryCount } from "./attempt-continuation-retry.js";
 import { prepareExecApprovalContinuationForAttempt } from "./attempt-exec-approval-continuation.js";
 import { withPreparedEmbeddedGatewayTools } from "./attempt-gateway-tools.js";
 import { resolveEmbeddedAttemptMemoryAudience } from "./attempt-memory-audience.js";
-import { preparePluginHarnessPrompt } from "./attempt-prompt-support.js";
+import { prepareEmbeddedAttemptPromptDispatch } from "./attempt-prompt-support.js";
 import { EMBEDDED_RUN_ATTEMPT_DISPATCH_STAGE } from "./attempt-stage-timing.js";
 import { prepareAttemptSystemPromptAdditions } from "./attempt-system-prompt-additions.js";
 import { flushEmbeddedAttemptTrajectoryRecorder } from "./attempt-trajectory-flush.js";
@@ -252,6 +253,12 @@ export async function prepareAndDispatchEmbeddedRunAttempt(
     : null;
   assertActiveRun();
   const pluginWorkspace = placement?.workspace;
+  const continuationRetryCount = createAttemptContinuationRetryCount(
+    params,
+    runtime,
+    { sessionId, agentDir },
+    assertActiveRun,
+  );
   const promptMedia = pluginWorkspace
     ? await prepareEmbeddedAttemptPromptExecution({
         attempt: { ...params, model: effectiveModel },
@@ -264,13 +271,10 @@ export async function prepareAndDispatchEmbeddedRunAttempt(
         pluginHarness: true,
       })
     : { images: params.images, imageOrder: params.imageOrder, media: params.media };
-  const pluginPrompt = preparePluginHarnessPrompt({
+  const promptDispatch = prepareEmbeddedAttemptPromptDispatch({
+    params,
+    preparedPrompt: preparedExecApprovalContinuation,
     ownsTransport: runtime.pluginHarnessOwnsTransport,
-    prompt: preparedExecApprovalContinuation.prompt,
-    finalize: params.finalizePromptForResolvedTools,
-    transcriptPrompt: params.transcriptPrompt,
-    resolveRuntimeContextForTools: params.resolveRuntimeContextForTools,
-    currentInboundContext: params.currentInboundContext,
   });
   const pluginSandbox = placement?.sandbox ?? pluginWorkspace?.sandbox;
   if (params.permissionMode) {
@@ -464,23 +468,14 @@ export async function prepareAndDispatchEmbeddedRunAttempt(
       ? {}
       : { authoredContextTokenCap: runtime.authoredContextTokenCap }),
     skillsSnapshot,
-    prompt: remapSkillReferencePaths(
-      pluginPrompt?.prompt ?? preparedExecApprovalContinuation.prompt,
-      skillReferencePaths,
-    ),
-    transcriptPrompt:
-      pluginPrompt?.transcriptPrompt ?? preparedExecApprovalContinuation.transcriptPrompt,
-    finalizePromptForResolvedTools: pluginPrompt
-      ? undefined
-      : params.finalizePromptForResolvedTools,
-    resolveRuntimeContextForTools: pluginPrompt ? undefined : params.resolveRuntimeContextForTools,
+    ...promptDispatch,
+    prompt: remapSkillReferencePaths(promptDispatch.prompt, skillReferencePaths),
     userTurnTranscriptRecorder: params.userTurnTranscriptRecorder,
     // The outer run-loop owns the begun lease; the inner attempt reports only
     // the accepted candidate boundary to that owner.
     onContextEngineTurnCandidate: params.onContextEngineTurnCandidate,
     skipPreparedUserTurnMessage,
     currentInboundEventKind: params.currentInboundEventKind,
-    currentInboundContext: pluginPrompt?.currentInboundContext ?? params.currentInboundContext,
     explicitSkillSelections: params.explicitSkillSelections?.map((selection) =>
       copyExplicitSkillSelectionFileHost(selection, {
         ...selection,
@@ -670,6 +665,7 @@ export async function prepareAndDispatchEmbeddedRunAttempt(
       sessionPromptState.activePrompt.persisted = false;
     },
     prepareAssistantTranscriptMessage: params.prepareAssistantTranscriptMessage,
+    ...continuationRetryCount.capability,
   };
   let rawAttempt: EmbeddedRunAttemptResult;
   try {
@@ -706,6 +702,7 @@ export async function prepareAndDispatchEmbeddedRunAttempt(
   if (pluginWorkspace?.sandboxRuntime) {
     rawAttempt.sandboxRuntime = pluginWorkspace.sandboxRuntime;
   }
+  continuationRetryCount.applyTo(rawAttempt);
   return {
     dispatchedAttempt: { rawAttempt, preparedAttempt: attemptParams },
     runtimePlan,

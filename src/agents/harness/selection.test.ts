@@ -870,15 +870,6 @@ describe("runAgentHarnessAttempt", () => {
     },
   );
 
-  it("carries the host resolver to the built-in attempt without consuming it early", async () => {
-    const resolveRuntimeContextForTools = vi.fn(() => []);
-    await runAgentHarnessAttempt({ ...createAttemptParams(), resolveRuntimeContextForTools });
-    expect(agentRunAttempt).toHaveBeenCalledWith(
-      expect.objectContaining({ resolveRuntimeContextForTools }),
-    );
-    expect(resolveRuntimeContextForTools).not.toHaveBeenCalled();
-  });
-
   it("routes settled turns through an explicit finalizer without private state", async () => {
     const runAttempt = vi.fn<AgentHarness["runAttempt"]>(async () => createAttemptResult("run"));
     let hostAuthorityActive = true;

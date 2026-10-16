@@ -96,6 +96,9 @@ export function createPromptBuildToolPolicy<
   return {
     current,
     apply,
+    // The session baseline includes client tools and survives prompt-level pruning.
+    // Read its latest permission generation, not the previous turn's restricted surface.
+    hasBaselineTools: () => baseline.activeToolNames.length > 0,
     prepareForDispatch: <T>(prepareRestoredPrompt: () => Promise<T>): Promise<T> | undefined => {
       if (!decisionIsCurrent || decisionIsCurrent()) {
         return undefined;
@@ -165,6 +168,41 @@ export function preparePluginHarnessPrompt(params: {
           labelRuntimeContextText(projectRuntimeContextFragments(fragments)),
         )
       : params.currentInboundContext,
+  };
+}
+
+type PromptDispatchParams = Pick<
+  RunEmbeddedAgentInternalParams,
+  | "prompt"
+  | "transcriptPrompt"
+  | "finalizePromptForResolvedTools"
+  | "resolveRuntimeContextForTools"
+  | "currentInboundContext"
+>;
+
+/** Bind prompt projection and callback ownership together before harness dispatch. */
+export function prepareEmbeddedAttemptPromptDispatch(input: {
+  params: Omit<PromptDispatchParams, "prompt">;
+  preparedPrompt: Pick<PromptDispatchParams, "prompt" | "transcriptPrompt">;
+  ownsTransport: boolean;
+}): PromptDispatchParams {
+  const { params, preparedPrompt, ownsTransport } = input;
+  const pluginPrompt = preparePluginHarnessPrompt({
+    ownsTransport,
+    prompt: preparedPrompt.prompt,
+    transcriptPrompt: params.transcriptPrompt,
+    finalize: params.finalizePromptForResolvedTools,
+    resolveRuntimeContextForTools: params.resolveRuntimeContextForTools,
+    currentInboundContext: params.currentInboundContext,
+  });
+  return {
+    prompt: pluginPrompt?.prompt ?? preparedPrompt.prompt,
+    transcriptPrompt: pluginPrompt?.transcriptPrompt ?? preparedPrompt.transcriptPrompt,
+    finalizePromptForResolvedTools: pluginPrompt
+      ? undefined
+      : params.finalizePromptForResolvedTools,
+    resolveRuntimeContextForTools: pluginPrompt ? undefined : params.resolveRuntimeContextForTools,
+    currentInboundContext: pluginPrompt?.currentInboundContext ?? params.currentInboundContext,
   };
 }
 
