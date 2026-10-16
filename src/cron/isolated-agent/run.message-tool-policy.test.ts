@@ -1,5 +1,6 @@
 import { createRequireRecord } from "openclaw/plugin-sdk/test-fixtures";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { ResolvedToolPromptFinalizer } from "../../agents/embedded-agent-runner/run/params.js";
 import { mockCall } from "../../test-utils/mock-call-assertions.js";
 import { applyJobPatch } from "../service/jobs.js";
 import { makeIsolatedAgentParamsFixture } from "./job-fixtures.js";
@@ -113,11 +114,15 @@ function runPrompt(runParams: Record<string, unknown>, messageToolAvailable = fa
   if (typeof finalizer !== "function") {
     return prompt;
   }
-  const finalized = finalizer({ prompt, messageToolAvailable });
-  if (typeof finalized !== "string") {
-    throw new Error("expected finalized run prompt to be a string");
+  const finalized = (finalizer as ResolvedToolPromptFinalizer)({ prompt, messageToolAvailable });
+  if (typeof finalized === "string") {
+    return finalized;
   }
-  return finalized;
+  expect(finalized.prompt).toBe(prompt);
+  return [
+    finalized.prompt,
+    ...(finalized.runtimeContextFragments ?? []).map((fragment) => fragment.text),
+  ].join("\n\n");
 }
 function mockCliAnnounce() {
   mockAnnounce();

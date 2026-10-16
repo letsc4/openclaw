@@ -31,6 +31,7 @@ import {
   resolveMcpLoopbackScopedTools,
 } from "../../gateway/mcp-http.runtime.js";
 import { claimHeartbeatContextForUserRun } from "../../infra/heartbeat-outcome-store.js";
+import { labelRuntimeContextText } from "../../llm/types.js";
 import { buildSystemAgentToolsMcpServerConfig } from "../../mcp/openclaw-tools-serve-config.js";
 import { CliBackendAuthProfilePreparationError } from "../../plugins/cli-backend-errors.js";
 import type {
@@ -99,6 +100,7 @@ import {
 } from "../embedded-agent-runner/run/attempt-tool-construction-plan.js";
 import { remapSkillReferencePaths } from "../embedded-agent-runner/sandbox-skills.js";
 import { beginContextEngineLogicalTurn } from "../harness/context-engine-turn-begin.js";
+import { projectRuntimeContextFragments } from "../internal-runtime-context.js";
 import type { ResolvedProviderAuth } from "../model-auth-runtime-shared.js";
 import { loadManifestModelCatalog, overlayConfiguredModelCatalog } from "../model-catalog.js";
 import { resolveModelContextWindowProfile } from "../model-context-window.js";
@@ -1501,14 +1503,25 @@ async function prepareCliRunContextWithinReadFence(
         : params.transcriptPrompt;
     let promptContext: CliBackendPromptContext | undefined;
     let promptForHooks: string | undefined;
-    let preparedPrompt = isControlOperation
+    const finalizedPrompt = isControlOperation
       ? params.prompt
       : (params.finalizePromptForResolvedTools?.({
           prompt: params.prompt,
           messageToolAvailable,
         }) ?? params.prompt);
+    let preparedPrompt =
+      typeof finalizedPrompt === "string" ? finalizedPrompt : finalizedPrompt.prompt;
+    const finalizedRuntimeContext =
+      typeof finalizedPrompt === "string" ? undefined : finalizedPrompt.runtimeContextFragments;
     if (!isControlOperation && params.skillsSnapshot?.librarySelections?.length) {
       preparedPrompt = remapSkillReferencePaths(preparedPrompt, preparedSkills.usagePaths);
+    }
+    if (skipsTurnPreparation && finalizedRuntimeContext?.length) {
+      preparedPrompt = composeCliPromptContext(preparedPrompt, {
+        appendContext: labelRuntimeContextText(
+          projectRuntimeContextFragments(finalizedRuntimeContext),
+        ),
+      });
     }
     let historyPromptCurrentTurn = preparedPrompt;
     if (!skipsTurnPreparation) {
@@ -1539,7 +1552,10 @@ async function prepareCliRunContextWithinReadFence(
         isNewSession:
           !reusableCliSessionId?.trim() || reusableCliSession.mode === "reuse-with-drift",
         thinkLevel: params.thinkLevel,
-        runtimeContextFragments: params.runtimeContextFragments,
+        runtimeContextFragments: [
+          ...(params.runtimeContextFragments ?? []),
+          ...(finalizedRuntimeContext ?? []),
+        ],
         // Caller-owned memory cannot grant access to persisted interrupted inputs.
         sessionTarget: params.isolatedCompletion ? undefined : cliHistoryWriter?.target,
         context: [promptBuildHookResult?.appendContext, authorizedPromptBuildResult?.appendContext],

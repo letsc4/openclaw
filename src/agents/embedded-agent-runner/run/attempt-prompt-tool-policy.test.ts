@@ -216,7 +216,7 @@ describe("applyPromptBuildToolsAllow", () => {
         activeToolNames: result.activeToolNames,
         finalize: ({ prompt, messageToolAvailable }) => `${prompt}:${messageToolAvailable}`,
       }),
-    ).toBe("cron:false");
+    ).toEqual({ prompt: "cron:false" });
   });
 
   it("keeps host-required tools when a hook denies optional tools", () => {
@@ -243,7 +243,7 @@ describe("applyPromptBuildToolsAllow", () => {
         activeToolNames: result.activeToolNames,
         finalize: ({ prompt, messageToolAvailable }) => `${prompt}:${messageToolAvailable}`,
       }),
-    ).toBe("cron:true");
+    ).toEqual({ prompt: "cron:true" });
   });
 
   it("cannot add a tool that the host-resolved surface already removed", () => {

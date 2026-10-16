@@ -167,9 +167,12 @@ type DispatchCase = {
   diffBaseline?: "settled" | "failed" | "revoked";
   cancelTrajectory?: boolean;
   preparedAuth?: "explicit-header" | "no-auth";
+  finalizer?: "string" | "context";
 };
 
 const dispatchCases: DispatchCase[] = [
+  { agentId: "main", finalizer: "string" },
+  { agentId: "main", finalizer: "context" },
   ...(["explicit-header", "no-auth"] as const).map((preparedAuth) => ({
     agentId: "main",
     preparedAuth,
@@ -195,7 +198,7 @@ const dispatchCases: DispatchCase[] = [
 ];
 
 it.each(dispatchCases)(
-  "dispatches $agentId: sandbox $sandboxSessionKey, skills $skillCatalog/$remoteSkills, one-shot $oneShotCliRun, managed $realManagedWorkspace, media $hostMedia, retired $retirePlacement, baseline $diffBaseline, cancelled $cancelTrajectory, prepared auth $preparedAuth",
+  "dispatches $agentId: sandbox $sandboxSessionKey, skills $skillCatalog/$remoteSkills, one-shot $oneShotCliRun, managed $realManagedWorkspace, media $hostMedia, retired $retirePlacement, baseline $diffBaseline, cancelled $cancelTrajectory, prepared auth $preparedAuth, finalizer $finalizer",
   async ({
     agentId = "work",
     sandboxSessionKey,
@@ -210,6 +213,7 @@ it.each(dispatchCases)(
     diffBaseline,
     cancelTrajectory,
     preparedAuth,
+    finalizer,
   }) => {
     const gitCoauthorPrompt =
       "Git co-authors: add these exact trailers to every commit you make from this session.\n" +
@@ -347,21 +351,39 @@ it.each(dispatchCases)(
       });
       const admittedRunContext = await admission.admit("plugin-harness", "owner-test");
       setActivePluginRegistry(createEmptyPluginRegistry());
-      const runAttempt = vi.fn<AgentHarness["runAttempt"]>(async (params) => ({
-        terminal: { kind: "ok" },
-        sessionIdUsed: params.sessionId,
-        messagesSnapshot: [],
-        assistantTexts: [`${params.agentId} answered`],
-        toolMetas: [],
-        lastAssistant: undefined,
-        didSendViaMessagingTool: false,
-        messagingToolSentTexts: [],
-        messagingToolSentMediaUrls: [],
-        messagingToolSentTargets: [],
-        cloudCodeAssistFormatError: false,
-        replayMetadata: { hadPotentialSideEffects: false, replaySafe: true },
-        itemLifecycle: { startedCount: 0, completedCount: 0, activeCount: 0 },
-      }));
+      const runAttempt = vi.fn<AgentHarness["runAttempt"]>(async (params) => {
+        if (finalizer) {
+          expect(params.prompt).toBe(finalizer === "string" ? "hello:finalized" : "hello");
+          expect(params.transcriptPrompt).toBe("hello");
+          expect(params.finalizePromptForResolvedTools).toBeUndefined();
+          expect(params.runtimeContextFragments).toEqual([
+            { kind: "runtime-instruction", text: "Existing context." },
+          ]);
+          if (finalizer === "context") {
+            expect(params.currentInboundContext?.text).toContain("Delivery context.");
+            expect(params.currentInboundContext?.text.match(/Delivery context/g)).toHaveLength(1);
+            expect(params.currentInboundContext?.resumableText).toContain("Delivery context.");
+          } else {
+            expect(params.currentInboundContext?.text).toBe("Existing inbound context.");
+          }
+          expect(params.currentInboundContext?.text).toContain("Existing inbound context.");
+        }
+        return {
+          terminal: { kind: "ok" },
+          sessionIdUsed: params.sessionId,
+          messagesSnapshot: [],
+          assistantTexts: [`${params.agentId} answered`],
+          toolMetas: [],
+          lastAssistant: undefined,
+          didSendViaMessagingTool: false,
+          messagingToolSentTexts: [],
+          messagingToolSentMediaUrls: [],
+          messagingToolSentTargets: [],
+          cloudCodeAssistFormatError: false,
+          replayMetadata: { hadPotentialSideEffects: false, replaySafe: true },
+          itemLifecycle: { startedCount: 0, completedCount: 0, activeCount: 0 },
+        };
+      });
       if (cancelTrajectory) {
         runAttempt.mockImplementation(async (attempt) => {
           const host = attempt.hostCapabilities;
@@ -421,6 +443,34 @@ it.each(dispatchCases)(
           : {}),
         sessionFile: "global",
         prompt: remoteSkills ? "Use the skill at /host/skills/demo/SKILL.md." : "hello",
+        ...(finalizer
+          ? {
+              currentInboundContext: {
+                text: "Existing inbound context.",
+                resumableText: "Existing resumed context.",
+              },
+              runtimeContextFragments: [
+                { kind: "runtime-instruction" as const, text: "Existing context." },
+              ],
+              finalizePromptForResolvedTools: ({
+                prompt,
+                messageToolAvailable,
+              }: {
+                prompt: string;
+                messageToolAvailable: boolean;
+              }) => {
+                expect(messageToolAvailable).toBe(false);
+                return finalizer === "string"
+                  ? `${prompt}:finalized`
+                  : {
+                      prompt,
+                      runtimeContextFragments: [
+                        { kind: "runtime-instruction" as const, text: "Delivery context." },
+                      ],
+                    };
+              },
+            }
+          : {}),
         ...(skillsSnapshot ? { skillsSnapshot } : {}),
         ...(remoteSkills
           ? {

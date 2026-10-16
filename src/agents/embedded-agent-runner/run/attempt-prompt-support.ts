@@ -5,6 +5,7 @@ import {
   type DiagnosticTraceContext,
   freezeDiagnosticTraceContext,
 } from "../../../infra/diagnostic-trace-context.js";
+import { labelRuntimeContextText } from "../../../llm/types.js";
 import type { PluginHookLlmInputEvent } from "../../../plugins/hook-types.js";
 import type { HookRunner } from "../../../plugins/hooks.js";
 import {
@@ -13,6 +14,7 @@ import {
 } from "../../../trajectory/runtime.js";
 import type { createCacheTrace } from "../../cache-trace.js";
 import { createAgentHarnessPromptToolPolicy } from "../../harness/prompt-tool-policy.js";
+import { projectRuntimeContextFragments } from "../../internal-runtime-context.js";
 import type { AgentMessage } from "../../runtime/index.js";
 import type { AgentSession } from "../../sessions/index.js";
 import { normalizeToolPolicyName } from "../../tool-policy.js";
@@ -21,7 +23,8 @@ import { log } from "../logger.js";
 import { buildEmbeddedAgentHookContext } from "./agent-hook-context.js";
 import { summarizeSessionContext } from "./attempt-context-summary.js";
 import { resolvePromptSubmissionSkipReason } from "./attempt-prompt-submit.js";
-import type { ResolvedToolPromptFinalizer } from "./params.js";
+import type { ResolvedToolPromptFinalizer, ResolvedToolPromptResult } from "./params.js";
+import { appendCurrentInboundContext } from "./runtime-context-prompt.js";
 import type { EmbeddedRunAttemptParams } from "./types.js";
 
 type NamedTool = { name: string };
@@ -121,16 +124,44 @@ export function applyResolvedToolPromptFinalizer(params: {
   prompt: string;
   activeToolNames: readonly string[];
   finalize?: ResolvedToolPromptFinalizer;
-}): string {
-  if (!params.finalize) {
-    return params.prompt;
+}): ResolvedToolPromptResult {
+  const result =
+    params.finalize?.({
+      prompt: params.prompt,
+      messageToolAvailable: params.activeToolNames.some(
+        (toolName) => normalizeToolPolicyName(toolName) === "message",
+      ),
+    }) ?? params.prompt;
+  return typeof result === "string" ? { prompt: result } : result;
+}
+
+/** Plugin-owned tools are not host-attested; keep their message guidance conservative. */
+export function preparePluginHarnessPrompt(params: {
+  ownsTransport: boolean;
+  prompt: string;
+  finalize?: ResolvedToolPromptFinalizer;
+  runtimeContextFragments?: ResolvedToolPromptResult["runtimeContextFragments"];
+  currentInboundContext?: EmbeddedRunAttemptParams["currentInboundContext"];
+}):
+  | (ResolvedToolPromptResult & Pick<EmbeddedRunAttemptParams, "currentInboundContext">)
+  | undefined {
+  if (!params.ownsTransport || !params.finalize) {
+    return undefined;
   }
-  return params.finalize({
-    prompt: params.prompt,
-    messageToolAvailable: params.activeToolNames.some(
-      (toolName) => normalizeToolPolicyName(toolName) === "message",
-    ),
-  });
+  const result = applyResolvedToolPromptFinalizer({ ...params, activeToolNames: [] });
+  return {
+    ...result,
+    // Native plugins consume currentInboundContext, not the raw fragment field.
+    // Project only this finalizer's additions; existing caller fragments keep their owner.
+    runtimeContextFragments: params.runtimeContextFragments,
+    currentInboundContext: result.runtimeContextFragments?.length
+      ? appendCurrentInboundContext(
+          params.currentInboundContext,
+          result.runtimeContextFragments,
+          labelRuntimeContextText(projectRuntimeContextFragments(result.runtimeContextFragments)),
+        )
+      : params.currentInboundContext,
+  };
 }
 
 function sameToolNames(left: readonly string[], right: readonly string[]): boolean {

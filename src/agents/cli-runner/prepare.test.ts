@@ -3453,6 +3453,48 @@ describe("prepareCliRunContext", () => {
     },
   );
 
+  it.each(["raw", "private", "side-question"] as const)(
+    "transports structured finalizer context through CLI preparation (%s)",
+    async (transport) => {
+      if (transport === "private") {
+        setCliBackendForPrepareTest({
+          id: "test-cli",
+          prepareExecution: () => ({
+            async *execute() {
+              yield { type: "result" };
+            },
+          }),
+        });
+      }
+      const context = await fixture.prepare({
+        ...(transport === "side-question" ? { executionMode: "side-question" as const } : {}),
+        runtimeContextFragments: [
+          { kind: "runtime-instruction", text: "Existing producer context." },
+        ],
+        finalizePromptForResolvedTools: ({ prompt, messageToolAvailable }) => ({
+          prompt,
+          runtimeContextFragments: [
+            {
+              kind: "runtime-instruction",
+              text: `Finalizer delivery context: message=${messageToolAvailable}.`,
+            },
+          ],
+        }),
+      });
+      const deliveryContext = context.promptContext?.appendContext ?? context.params.prompt;
+      expect(deliveryContext).toContain("Finalizer delivery context: message=false.");
+      expect(deliveryContext.match(/Finalizer delivery context/g)).toHaveLength(1);
+      expect(context.params.transcriptPrompt).toBe("latest ask");
+      if (transport !== "side-question") {
+        expect(deliveryContext).toContain("Existing producer context.");
+      }
+      if (transport === "private") {
+        expect(context.params.prompt).toBe("latest ask");
+      }
+      await context.preparedBackend.cleanup?.();
+    },
+  );
+
   it("fails closed when a prompt hook restricts an always-on CLI backend", async () => {
     const hookRunner = {
       hasHooks: vi.fn((hookName: string) => hookName === "before_prompt_build"),

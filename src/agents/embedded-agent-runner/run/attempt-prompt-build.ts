@@ -282,11 +282,12 @@ export async function prepareEmbeddedAttemptPromptAssembly(input: {
           assertHostActive,
         });
   const promptBeforeResolvedToolFinalization = effectivePrompt;
-  effectivePrompt = applyResolvedToolPromptFinalizer({
+  const finalizedPrompt = applyResolvedToolPromptFinalizer({
     prompt: effectivePrompt,
     activeToolNames: callableToolNames,
     finalize: attempt.finalizePromptForResolvedTools,
   });
+  effectivePrompt = finalizedPrompt.prompt;
   let effectiveTranscriptPrompt = attempt.transcriptPrompt ?? promptBeforeResolvedToolFinalization;
   if (attempt.suppressNextUserMessagePersistence && !effectiveTranscriptPrompt.trim()) {
     effectiveTranscriptPrompt = promptBeforeResolvedToolFinalization;
@@ -393,6 +394,9 @@ export async function prepareEmbeddedAttemptPromptAssembly(input: {
     promptBuildPrependContext,
     promptBuildAppendContext,
     effectiveTranscriptPrompt,
+    ...(finalizedPrompt.runtimeContextFragments
+      ? { runtimeContextFragments: finalizedPrompt.runtimeContextFragments }
+      : {}),
     originContext,
     transcriptLeafId,
     heartbeatSummary,
@@ -418,6 +422,7 @@ type PromptContextAttempt = Pick<
 type PromptAssemblyContext = {
   effectivePrompt: string;
   effectiveTranscriptPrompt: string;
+  runtimeContextFragments?: RuntimeContextFragment[];
   originContext?: ReturnType<typeof buildInterSessionPromptContext>;
   heartbeatSummary?: Pick<HeartbeatSummary, "ackMaxChars" | "prompt">;
 };
@@ -498,6 +503,7 @@ export async function prepareEmbeddedAttemptPromptContext(input: {
   const eventFragments: RuntimeContextFragment[] = [
     ...buildAgentInternalEventContext(attempt.internalEvents),
     ...(attempt.runtimeContextFragments ?? []),
+    ...(input.prompt.runtimeContextFragments ?? []),
     ...(input.prompt.originContext
       ? escapedProjection
         ? input.prompt.originContext.fragments
