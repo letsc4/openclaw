@@ -23,7 +23,8 @@ import { log } from "../logger.js";
 import { buildEmbeddedAgentHookContext } from "./agent-hook-context.js";
 import { summarizeSessionContext } from "./attempt-context-summary.js";
 import { resolvePromptSubmissionSkipReason } from "./attempt-prompt-submit.js";
-import type { ResolvedToolPromptFinalizer, ResolvedToolPromptResult } from "./params.js";
+import type { RunEmbeddedAgentInternalParams } from "./internal-params.js";
+import type { ResolvedToolPromptFinalizer } from "./params.js";
 import { appendCurrentInboundContext } from "./runtime-context-prompt.js";
 import type { EmbeddedRunAttemptParams } from "./types.js";
 
@@ -124,41 +125,44 @@ export function applyResolvedToolPromptFinalizer(params: {
   prompt: string;
   activeToolNames: readonly string[];
   finalize?: ResolvedToolPromptFinalizer;
-}): ResolvedToolPromptResult {
-  const result =
+}): string {
+  return (
     params.finalize?.({
       prompt: params.prompt,
       messageToolAvailable: params.activeToolNames.some(
         (toolName) => normalizeToolPolicyName(toolName) === "message",
       ),
-    }) ?? params.prompt;
-  return typeof result === "string" ? { prompt: result } : result;
+    }) ?? params.prompt
+  );
 }
 
 /** Plugin-owned tools are not host-attested; keep their message guidance conservative. */
 export function preparePluginHarnessPrompt(params: {
   ownsTransport: boolean;
   prompt: string;
+  transcriptPrompt?: string;
   finalize?: ResolvedToolPromptFinalizer;
-  runtimeContextFragments?: ResolvedToolPromptResult["runtimeContextFragments"];
+  resolveRuntimeContextForTools?: RunEmbeddedAgentInternalParams["resolveRuntimeContextForTools"];
   currentInboundContext?: EmbeddedRunAttemptParams["currentInboundContext"];
 }):
-  | (ResolvedToolPromptResult & Pick<EmbeddedRunAttemptParams, "currentInboundContext">)
+  | Pick<EmbeddedRunAttemptParams, "prompt" | "transcriptPrompt" | "currentInboundContext">
   | undefined {
-  if (!params.ownsTransport || !params.finalize) {
+  if (!params.ownsTransport || (!params.finalize && !params.resolveRuntimeContextForTools)) {
     return undefined;
   }
-  const result = applyResolvedToolPromptFinalizer({ ...params, activeToolNames: [] });
+  const prompt = applyResolvedToolPromptFinalizer({ ...params, activeToolNames: [] });
+  const fragments = params.resolveRuntimeContextForTools?.({ messageToolAvailable: false });
   return {
-    ...result,
+    prompt,
+    // Only supply the original task when the caller has not pinned its own transcript.
+    transcriptPrompt: params.transcriptPrompt === undefined ? params.prompt : undefined,
     // Native plugins consume currentInboundContext, not the raw fragment field.
-    // Project only this finalizer's additions; existing caller fragments keep their owner.
-    runtimeContextFragments: params.runtimeContextFragments,
-    currentInboundContext: result.runtimeContextFragments?.length
+    // Project only this resolver's additions; existing caller fragments keep their owner.
+    currentInboundContext: fragments?.length
       ? appendCurrentInboundContext(
           params.currentInboundContext,
-          result.runtimeContextFragments,
-          labelRuntimeContextText(projectRuntimeContextFragments(result.runtimeContextFragments)),
+          fragments,
+          labelRuntimeContextText(projectRuntimeContextFragments(fragments)),
         )
       : params.currentInboundContext,
   };

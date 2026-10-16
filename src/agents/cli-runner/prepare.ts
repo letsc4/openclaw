@@ -98,6 +98,7 @@ import {
   applyEmbeddedAttemptToolsAllow,
   mergeForcedEmbeddedAttemptToolsAllow,
 } from "../embedded-agent-runner/run/attempt-tool-construction-plan.js";
+import type { RunCliAgentInternalParams } from "../embedded-agent-runner/run/internal-params.js";
 import { remapSkillReferencePaths } from "../embedded-agent-runner/sandbox-skills.js";
 import { beginContextEngineLogicalTurn } from "../harness/context-engine-turn-begin.js";
 import { projectRuntimeContextFragments } from "../internal-runtime-context.js";
@@ -180,7 +181,7 @@ type RunCliAgentPrepareParams = RunCliAgentParams & {
 };
 
 export async function prepareCliRunContext(
-  inputParams: RunCliAgentParams,
+  inputParams: RunCliAgentInternalParams,
 ): Promise<PreparedCliRunContext> {
   return runWithCliPreparationSource(inputParams, () =>
     prepareCliRunContextWithinReadFence(inputParams),
@@ -188,8 +189,10 @@ export async function prepareCliRunContext(
 }
 
 async function prepareCliRunContextWithinReadFence(
-  inputParams: RunCliAgentParams,
+  input: RunCliAgentInternalParams,
 ): Promise<PreparedCliRunContext> {
+  // Consume host guidance here, never in a plugin's preparation or execution request.
+  const { resolveRuntimeContextForTools, ...inputParams } = input;
   let params = inputParams.config ? inputParams : { ...inputParams, config: getRuntimeConfig() };
   if (params.sessionManager) {
     // Caller-owned memory is authoritative even when empty. Correlation and native
@@ -1494,6 +1497,7 @@ async function prepareCliRunContextWithinReadFence(
           });
     const finalizedTranscriptPrompt =
       (params.finalizePromptForResolvedTools ||
+        resolveRuntimeContextForTools ||
         sessionPromptContext?.durableContext ||
         sessionPromptContext?.sessionGapContext ||
         sessionPromptContext?.preservedTurnsContext ||
@@ -1503,16 +1507,15 @@ async function prepareCliRunContextWithinReadFence(
         : params.transcriptPrompt;
     let promptContext: CliBackendPromptContext | undefined;
     let promptForHooks: string | undefined;
-    const finalizedPrompt = isControlOperation
+    let preparedPrompt = isControlOperation
       ? params.prompt
       : (params.finalizePromptForResolvedTools?.({
           prompt: params.prompt,
           messageToolAvailable,
         }) ?? params.prompt);
-    let preparedPrompt =
-      typeof finalizedPrompt === "string" ? finalizedPrompt : finalizedPrompt.prompt;
-    const finalizedRuntimeContext =
-      typeof finalizedPrompt === "string" ? undefined : finalizedPrompt.runtimeContextFragments;
+    const finalizedRuntimeContext = isControlOperation
+      ? undefined
+      : resolveRuntimeContextForTools?.({ messageToolAvailable });
     if (!isControlOperation && params.skillsSnapshot?.librarySelections?.length) {
       preparedPrompt = remapSkillReferencePaths(preparedPrompt, preparedSkills.usagePaths);
     }

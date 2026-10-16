@@ -49,16 +49,10 @@ import type { AuthProfileFailurePolicy } from "./auth-profile-failure-policy.typ
 export type { ClientToolDefinition } from "../../command/shared-types.js";
 export type { CurrentInboundPromptContext } from "../../internal-runtime-context.js";
 
-export type ResolvedToolPromptResult = {
-  prompt: string;
-  /** Run-bound guidance, never a rewrite of the admitted user message. */
-  runtimeContextFragments?: import("../../internal-runtime-context.js").RuntimeContextFragment[];
-};
-
 export type ResolvedToolPromptFinalizer = (params: {
   prompt: string;
   messageToolAvailable: boolean;
-}) => string | ResolvedToolPromptResult;
+}) => string;
 
 export type RunEmbeddedAgentParams = {
   /** Settles the session's initial workspace attribution before tools can act. */

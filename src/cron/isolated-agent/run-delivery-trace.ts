@@ -1,5 +1,5 @@
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
-import type { ResolvedToolPromptResult } from "../../agents/embedded-agent-runner/run/params.js";
+import type { RuntimeContextFragment } from "../../agents/internal-runtime-context.js";
 import { wrapUntrustedPromptDataBlock } from "../../agents/sanitize-for-prompt.js";
 /** Delivery planning, prompt policy, and delivery trace construction for cron runs. */
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
@@ -315,14 +315,13 @@ export async function resolveCronDeliveryContext(params: {
 }
 
 /** Keeps tool-dependent delivery guidance outside the admitted user prompt. */
-export function finalizeCronPromptForResolvedTools(params: {
-  prompt: string;
+export function resolveCronRuntimeContextForTools(params: {
   messageToolAvailable: boolean;
   deliveryRequested: boolean;
   resolvedDelivery: SourceDeliveryPlan["target"] & { ok: boolean };
   sourceDelivery: SourceDeliveryPlan;
   messageToolFormatPrompt?: string;
-}): ResolvedToolPromptResult {
+}): RuntimeContextFragment[] {
   const { sourceDelivery, resolvedDelivery } = params;
   const messageToolAvailable = sourceDelivery.messageTool.enabled && params.messageToolAvailable;
   if (sourceDelivery.sourceReplyDeliveryMode === "message_tool_only" && !messageToolAvailable) {
@@ -356,14 +355,5 @@ export function finalizeCronPromptForResolvedTools(params: {
     }),
     messageToolAvailable ? params.messageToolFormatPrompt : undefined,
   ].filter(Boolean);
-  return {
-    prompt: params.prompt,
-    ...(context.length
-      ? {
-          runtimeContextFragments: [
-            { kind: "runtime-instruction" as const, text: context.join("\n\n") },
-          ],
-        }
-      : {}),
-  };
+  return context.length ? [{ kind: "runtime-instruction", text: context.join("\n\n") }] : [];
 }

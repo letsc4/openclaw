@@ -34,6 +34,7 @@ import {
   appendModelIdentitySystemPrompt,
   buildModelIdentityPromptLine,
 } from "../../system-prompt.js";
+import { normalizeToolPolicyName } from "../../tool-policy.js";
 import { log } from "../logger.js";
 import { normalizeAssistantReplayContent } from "../replay-history.js";
 import {
@@ -64,6 +65,7 @@ import {
 } from "./attempt-prompt-helpers.js";
 import { applyResolvedToolPromptFinalizer } from "./attempt-prompt-support.js";
 import { composeSystemPromptWithHookContext } from "./attempt-thread-helpers.js";
+import type { EmbeddedRunAttemptInternalParams } from "./internal-params.js";
 import {
   buildRuntimeContextCustomMessage,
   resolveRuntimeContextPromptParts,
@@ -81,7 +83,7 @@ export type EmbeddedAttemptSteeringLease = {
 
 export async function prepareEmbeddedAttemptPromptAssembly(input: {
   attempt: Omit<
-    EmbeddedRunAttemptParams,
+    EmbeddedRunAttemptInternalParams,
     | "authStorage"
     | "authProfileStore"
     | "modelRegistry"
@@ -282,12 +284,16 @@ export async function prepareEmbeddedAttemptPromptAssembly(input: {
           assertHostActive,
         });
   const promptBeforeResolvedToolFinalization = effectivePrompt;
-  const finalizedPrompt = applyResolvedToolPromptFinalizer({
+  effectivePrompt = applyResolvedToolPromptFinalizer({
     prompt: effectivePrompt,
     activeToolNames: callableToolNames,
     finalize: attempt.finalizePromptForResolvedTools,
   });
-  effectivePrompt = finalizedPrompt.prompt;
+  const runtimeContextFragments = attempt.resolveRuntimeContextForTools?.({
+    messageToolAvailable: callableToolNames.some(
+      (toolName) => normalizeToolPolicyName(toolName) === "message",
+    ),
+  });
   let effectiveTranscriptPrompt = attempt.transcriptPrompt ?? promptBeforeResolvedToolFinalization;
   if (attempt.suppressNextUserMessagePersistence && !effectiveTranscriptPrompt.trim()) {
     effectiveTranscriptPrompt = promptBeforeResolvedToolFinalization;
@@ -394,9 +400,7 @@ export async function prepareEmbeddedAttemptPromptAssembly(input: {
     promptBuildPrependContext,
     promptBuildAppendContext,
     effectiveTranscriptPrompt,
-    ...(finalizedPrompt.runtimeContextFragments
-      ? { runtimeContextFragments: finalizedPrompt.runtimeContextFragments }
-      : {}),
+    ...(runtimeContextFragments ? { runtimeContextFragments } : {}),
     originContext,
     transcriptLeafId,
     heartbeatSummary,

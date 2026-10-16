@@ -6,7 +6,7 @@ import {
   setRuntimeConfigSnapshot,
 } from "../../../config/runtime-snapshot.js";
 import { transcriptRewritePreservesAdmission } from "../../../config/sessions/session-transcript-rewrite-effects.js";
-import { finalizeCronPromptForResolvedTools } from "../../../cron/isolated-agent/run-delivery-trace.js";
+import { resolveCronRuntimeContextForTools } from "../../../cron/isolated-agent/run-delivery-trace.js";
 import { resolveCronSourceDeliveryPlan } from "../../../cron/isolated-agent/source-delivery-plan.js";
 import { createUserTurnTranscriptRecorder } from "../../../sessions/user-turn-transcript.js";
 import {
@@ -26,6 +26,7 @@ import {
   prepareEmbeddedAttemptPromptAssembly,
   prepareEmbeddedAttemptPromptContext,
 } from "./attempt-prompt-build.js";
+import type { ResolvedToolPromptFinalizer } from "./params.js";
 
 // mock-isolation: Keep persistent plugin injection queues outside this synthetic cron turn.
 vi.mock("../../../plugins/host-hook-state.js", () => ({
@@ -68,7 +69,7 @@ vi.mock("../../../config/sessions/session-accessor.sqlite-events.js", () => ({
 
 afterEach(() => clearRuntimeConfigSnapshot());
 
-const promptText = "Report the scheduled result.";
+const promptText = "  Report the scheduled result.\n\n";
 const target = {
   ok: true,
   channel: "fixture-chat",
@@ -81,6 +82,7 @@ async function prepare(
   mode: "announce" | "none" | "webhook",
   messageToolAvailable: boolean,
   abort?: "abort",
+  finalizePromptForResolvedTools?: ResolvedToolPromptFinalizer,
 ) {
   const config = {};
   setRuntimeConfigSnapshot(config);
@@ -102,22 +104,14 @@ async function prepare(
     },
     resolvedDelivery: target,
   });
-  const finalizer = vi.fn(
-    ({
-      prompt,
+  const resolver = vi.fn(({ messageToolAvailable: available }: { messageToolAvailable: boolean }) =>
+    resolveCronRuntimeContextForTools({
       messageToolAvailable: available,
-    }: {
-      prompt: string;
-      messageToolAvailable: boolean;
-    }) =>
-      finalizeCronPromptForResolvedTools({
-        prompt,
-        messageToolAvailable: available,
-        deliveryRequested: mode !== "none",
-        resolvedDelivery: target,
-        sourceDelivery,
-        messageToolFormatPrompt: "Use plain text for fixture-chat sends.",
-      }),
+      deliveryRequested: mode !== "none",
+      resolvedDelivery: target,
+      sourceDelivery,
+      messageToolFormatPrompt: "Use plain text for fixture-chat sends.",
+    }),
   );
   const attempt = {
     config,
@@ -130,7 +124,8 @@ async function prepare(
     sessionId: runId,
     workspaceDir: "/synthetic",
     trigger: "cron" as const,
-    finalizePromptForResolvedTools: finalizer,
+    resolveRuntimeContextForTools: resolver,
+    finalizePromptForResolvedTools,
     runtimeContextFragments: [
       { kind: "runtime-instruction" as const, text: "Existing run context." },
     ],
@@ -155,10 +150,26 @@ async function prepare(
       setActiveSessionSystemPrompt: () => {},
       setLeasedSteering: () => {},
     });
-  return { attempt, assemble, finalizer };
+  return { attempt, assemble, resolver };
 }
 
 describe("native cron delivery context", () => {
+  it("resolves guidance once without reinterpreting the independent string finalizer", async () => {
+    const finalize = vi.fn(({ prompt }: { prompt: string }) => `${prompt}:finalized`);
+    const fixture = await prepare("announce", true, undefined, finalize);
+    const assembly = await fixture.assemble();
+    expect(finalize).toHaveBeenCalledExactlyOnceWith({
+      prompt: promptText,
+      messageToolAvailable: true,
+    });
+    expect(fixture.resolver).toHaveBeenCalledExactlyOnceWith({ messageToolAvailable: true });
+    expect(assembly.effectivePrompt).toBe(`${promptText}:finalized`);
+    expect(assembly.effectiveTranscriptPrompt).toBe(promptText);
+    expect(assembly.runtimeContextFragments?.map((fragment) => fragment.text).join("\n")).toContain(
+      "delivered automatically",
+    );
+  });
+
   it.each([
     ["announce", true],
     ["announce", false],
@@ -201,6 +212,7 @@ describe("native cron delivery context", () => {
       });
       await recorder.waitForRuntimePersistence();
       const assembly = await fixture.assemble();
+      expect(fixture.resolver).toHaveBeenCalledExactlyOnceWith({ messageToolAvailable });
       const context = await prepareEmbeddedAttemptPromptContext({
         attempt: fixture.attempt,
         prompt: assembly,
@@ -269,6 +281,6 @@ describe("native cron delivery context", () => {
   it.each(["abort"] as const)("does not finalize after %s", async (reason) => {
     const fixture = await prepare("announce", true, reason);
     await expect(fixture.assemble()).rejects.toThrow();
-    expect(fixture.finalizer).not.toHaveBeenCalled();
+    expect(fixture.resolver).not.toHaveBeenCalled();
   });
 });

@@ -167,12 +167,13 @@ type DispatchCase = {
   diffBaseline?: "settled" | "failed" | "revoked";
   cancelTrajectory?: boolean;
   preparedAuth?: "explicit-header" | "no-auth";
-  finalizer?: "string" | "context";
+  finalizer?: "string" | "context" | "both";
 };
 
 const dispatchCases: DispatchCase[] = [
   { agentId: "main", finalizer: "string" },
   { agentId: "main", finalizer: "context" },
+  { agentId: "main", finalizer: "both" },
   ...(["explicit-header", "no-auth"] as const).map((preparedAuth) => ({
     agentId: "main",
     preparedAuth,
@@ -351,15 +352,34 @@ it.each(dispatchCases)(
       });
       const admittedRunContext = await admission.admit("plugin-harness", "owner-test");
       setActivePluginRegistry(createEmptyPluginRegistry());
+      const finalizePromptForResolvedTools = vi.fn(
+        ({ prompt, messageToolAvailable }: { prompt: string; messageToolAvailable: boolean }) => {
+          expect(messageToolAvailable).toBe(false);
+          return `${prompt}:finalized`;
+        },
+      );
+      const resolveRuntimeContextForTools = vi.fn(
+        ({ messageToolAvailable }: { messageToolAvailable: boolean }) => {
+          expect(messageToolAvailable).toBe(false);
+          return [{ kind: "runtime-instruction" as const, text: "Delivery context." }];
+        },
+      );
       const runAttempt = vi.fn<AgentHarness["runAttempt"]>(async (params) => {
+        expect(params).not.toHaveProperty("resolveRuntimeContextForTools");
         if (finalizer) {
-          expect(params.prompt).toBe(finalizer === "string" ? "hello:finalized" : "hello");
+          expect(params.prompt).toBe(finalizer === "context" ? "hello" : "hello:finalized");
+          expect(finalizePromptForResolvedTools).toHaveBeenCalledTimes(
+            finalizer === "context" ? 0 : 1,
+          );
+          expect(resolveRuntimeContextForTools).toHaveBeenCalledTimes(
+            finalizer === "string" ? 0 : 1,
+          );
           expect(params.transcriptPrompt).toBe("hello");
           expect(params.finalizePromptForResolvedTools).toBeUndefined();
           expect(params.runtimeContextFragments).toEqual([
             { kind: "runtime-instruction", text: "Existing context." },
           ]);
-          if (finalizer === "context") {
+          if (finalizer !== "string") {
             expect(params.currentInboundContext?.text).toContain("Delivery context.");
             expect(params.currentInboundContext?.text.match(/Delivery context/g)).toHaveLength(1);
             expect(params.currentInboundContext?.resumableText).toContain("Delivery context.");
@@ -452,23 +472,8 @@ it.each(dispatchCases)(
               runtimeContextFragments: [
                 { kind: "runtime-instruction" as const, text: "Existing context." },
               ],
-              finalizePromptForResolvedTools: ({
-                prompt,
-                messageToolAvailable,
-              }: {
-                prompt: string;
-                messageToolAvailable: boolean;
-              }) => {
-                expect(messageToolAvailable).toBe(false);
-                return finalizer === "string"
-                  ? `${prompt}:finalized`
-                  : {
-                      prompt,
-                      runtimeContextFragments: [
-                        { kind: "runtime-instruction" as const, text: "Delivery context." },
-                      ],
-                    };
-              },
+              ...(finalizer !== "context" ? { finalizePromptForResolvedTools } : {}),
+              ...(finalizer !== "string" ? { resolveRuntimeContextForTools } : {}),
             }
           : {}),
         ...(skillsSnapshot ? { skillsSnapshot } : {}),

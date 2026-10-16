@@ -264,11 +264,12 @@ export async function prepareAndDispatchEmbeddedRunAttempt(
         pluginHarness: true,
       })
     : { images: params.images, imageOrder: params.imageOrder, media: params.media };
-  const pluginHarnessPrompt = preparePluginHarnessPrompt({
+  const pluginPrompt = preparePluginHarnessPrompt({
     ownsTransport: runtime.pluginHarnessOwnsTransport,
     prompt: preparedExecApprovalContinuation.prompt,
     finalize: params.finalizePromptForResolvedTools,
-    runtimeContextFragments: params.runtimeContextFragments,
+    transcriptPrompt: params.transcriptPrompt,
+    resolveRuntimeContextForTools: params.resolveRuntimeContextForTools,
     currentInboundContext: params.currentInboundContext,
   });
   const pluginSandbox = placement?.sandbox ?? pluginWorkspace?.sandbox;
@@ -464,23 +465,22 @@ export async function prepareAndDispatchEmbeddedRunAttempt(
       : { authoredContextTokenCap: runtime.authoredContextTokenCap }),
     skillsSnapshot,
     prompt: remapSkillReferencePaths(
-      pluginHarnessPrompt?.prompt ?? preparedExecApprovalContinuation.prompt,
+      pluginPrompt?.prompt ?? preparedExecApprovalContinuation.prompt,
       skillReferencePaths,
     ),
     transcriptPrompt:
-      pluginHarnessPrompt !== undefined && params.transcriptPrompt === undefined
-        ? preparedExecApprovalContinuation.prompt
-        : preparedExecApprovalContinuation.transcriptPrompt,
-    finalizePromptForResolvedTools:
-      pluginHarnessPrompt === undefined ? params.finalizePromptForResolvedTools : undefined,
+      pluginPrompt?.transcriptPrompt ?? preparedExecApprovalContinuation.transcriptPrompt,
+    finalizePromptForResolvedTools: pluginPrompt
+      ? undefined
+      : params.finalizePromptForResolvedTools,
+    resolveRuntimeContextForTools: pluginPrompt ? undefined : params.resolveRuntimeContextForTools,
     userTurnTranscriptRecorder: params.userTurnTranscriptRecorder,
     // The outer run-loop owns the begun lease; the inner attempt reports only
     // the accepted candidate boundary to that owner.
     onContextEngineTurnCandidate: params.onContextEngineTurnCandidate,
     skipPreparedUserTurnMessage,
     currentInboundEventKind: params.currentInboundEventKind,
-    currentInboundContext:
-      pluginHarnessPrompt?.currentInboundContext ?? params.currentInboundContext,
+    currentInboundContext: pluginPrompt?.currentInboundContext ?? params.currentInboundContext,
     explicitSkillSelections: params.explicitSkillSelections?.map((selection) =>
       copyExplicitSkillSelectionFileHost(selection, {
         ...selection,
