@@ -27,9 +27,11 @@ import {
   prepareEmbeddedAttemptPromptContext,
 } from "./attempt-prompt-build.js";
 
+// mock-isolation: Keep persistent plugin injection queues outside this synthetic cron turn.
 vi.mock("../../../plugins/host-hook-state.js", () => ({
   drainPluginNextTurnInjectionContext: vi.fn(async () => ({ queuedInjections: [] })),
 }));
+// mock-isolation: Exclude live execution, subagent, and media state from delivery-context proof.
 vi.mock("../../runtime-facts-prompt.js", () => ({
   buildRuntimeFactsContext: vi.fn(async () => []),
 }));
@@ -40,6 +42,7 @@ const storage = vi.hoisted(() => ({
   message: undefined as PersistedUserTurnMessage | undefined,
   generation: "admitted-generation",
 }));
+// mock-isolation: Use the in-memory storage double instead of opening the transcript database.
 vi.mock("../../../config/sessions/session-message-rewrite.js", () => ({
   capturePreparedTranscriptModelPromptProjection: async (
     _anchor: unknown,
@@ -58,6 +61,7 @@ vi.mock("../../../config/sessions/session-message-rewrite.js", () => ({
     return { message, generation: storage.generation, messageId: "user-1" };
   },
 }));
+// mock-isolation: Do not publish fixture transcript changes to process-wide subscribers.
 vi.mock("../../../config/sessions/session-accessor.sqlite-events.js", () => ({
   publishTranscriptUpdate: vi.fn(async () => {}),
 }));
@@ -146,6 +150,7 @@ async function prepare(
       sessionAgentId: "main",
       runtimeModel: testModel.id,
       systemPromptText: "System instructions.",
+      hasBaselineTools: () => messageToolAvailable,
       applyPromptBuildToolsAllow: () => (messageToolAvailable ? ["message"] : []),
       setActiveSessionSystemPrompt: () => {},
       setLeasedSteering: () => {},
@@ -226,7 +231,7 @@ describe("native cron delivery context", () => {
         recorder,
       });
       onTestFinished(cleanup);
-      await session.agent.transformContext?.(
+      await expectDefined(session.agent.transformContext, "installed model prompt projection")(
         [storage.message as AgentMessage],
         new AbortController().signal,
       );
