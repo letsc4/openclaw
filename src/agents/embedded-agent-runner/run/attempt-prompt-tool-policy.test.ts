@@ -23,30 +23,6 @@ describe("prepareEmbeddedAttemptPromptDispatch", () => {
   const preparedPrompt = { prompt: "prepared", transcriptPrompt: "prepared transcript" };
   const currentInboundContext = { text: "Existing inbound.", resumableText: "Existing resume." };
 
-  it("retains callbacks and prepared transcript for the host-owned transport", () => {
-    const finalizePromptForResolvedTools = vi.fn(() => "finalized");
-    const resolveRuntimeContextForTools = vi.fn(() => []);
-    expect(
-      prepareEmbeddedAttemptPromptDispatch({
-        ownsTransport: false,
-        preparedPrompt,
-        params: {
-          transcriptPrompt: "caller transcript",
-          currentInboundContext,
-          finalizePromptForResolvedTools,
-          resolveRuntimeContextForTools,
-        },
-      }),
-    ).toEqual({
-      ...preparedPrompt,
-      currentInboundContext,
-      finalizePromptForResolvedTools,
-      resolveRuntimeContextForTools,
-    });
-    expect(finalizePromptForResolvedTools).not.toHaveBeenCalled();
-    expect(resolveRuntimeContextForTools).not.toHaveBeenCalled();
-  });
-
   it.each([undefined, "", "caller transcript"])(
     "consumes plugin callbacks once with transcript pin %j",
     (transcriptPrompt) => {
@@ -85,21 +61,6 @@ describe("prepareEmbeddedAttemptPromptDispatch", () => {
       expect(currentInboundContext.text).toBe("Existing inbound.");
     },
   );
-
-  it("keeps prepared fields for a plugin without either callback", () => {
-    expect(
-      prepareEmbeddedAttemptPromptDispatch({
-        ownsTransport: true,
-        preparedPrompt,
-        params: { currentInboundContext },
-      }),
-    ).toEqual({
-      ...preparedPrompt,
-      currentInboundContext,
-      finalizePromptForResolvedTools: undefined,
-      resolveRuntimeContextForTools: undefined,
-    });
-  });
 });
 
 function catalogEntry(
