@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { sha256HexPrefixCore } from "@openclaw/normalization-core/node-crypto";
 import { resolveNestedAgentLaneForSession } from "../agents/lanes.js";
 import { discoverRestartRecoveryStoreTargets } from "../agents/main-session-recovery/main-session-restart-recovery-shared.js";
 import type { AgentToolGatewayRequestCaller } from "../agents/tools/in-process-gateway.js";
@@ -33,10 +33,6 @@ import {
 import { SessionStoreUnavailableError } from "./session-utils-store-error.js";
 import { resolveGatewaySessionStoreTargetInWorker } from "./session-utils-store-worker.js";
 
-function sessionKeyHash(key: string): string {
-  return createHash("sha256").update(key).digest("hex").slice(0, 16);
-}
-
 class SessionSendEndpointChangedError extends Error {
   constructor(
     endpoint: "source" | "target",
@@ -47,7 +43,8 @@ class SessionSendEndpointChangedError extends Error {
     super(
       `${message}: ${JSON.stringify({
         endpoint,
-        sessionKeyHash: sessionKeyHash(expected.sessionKey),
+        reason: "endpoint-replaced",
+        sessionKeyHash: sha256HexPrefixCore(expected.sessionKey, 16),
         previousSessionId: expected.sessionId,
         currentSessionId: current.entry?.sessionId ?? null,
         previousGeneration: expected.lifecycleRevision ?? null,
@@ -88,11 +85,11 @@ export async function recoverSessionSendDeliveries(
     isTransientRestartRecoveryError(error) ||
     (error instanceof SessionStoreUnavailableError &&
       (error.reason === "schema-missing" || isSqliteLockError(error.readError)));
-  const retry = <T>(operation: () => Promise<T>) =>
+  const retry = <T>(operation: () => Promise<T>, phase?: string) =>
     retryAsync(
       async () => {
         assertCurrent();
-        return operation();
+        return phase ? measureStartup(startupTrace, phase, operation) : operation();
       },
       {
         attempts: 3,
@@ -110,17 +107,22 @@ export async function recoverSessionSendDeliveries(
         },
       },
     );
-  const targets = await retry(() =>
-    discoverRestartRecoveryStoreTargets({
-      cfg: config,
-      shouldContinue: () => !signal.aborted,
-    }),
+  const targets = await retry(
+    () =>
+      discoverRestartRecoveryStoreTargets({
+        cfg: config,
+        shouldContinue: () => !signal.aborted,
+      }),
+    "sidecars.delivery-discovery",
   );
   let blockedCount = 0;
   let cancelledCount = 0;
   for (const target of targets) {
     assertCurrent();
-    const entries = await retry(() => readPendingInputRecoveryEntriesInWorker(target));
+    const entries = await retry(
+      () => readPendingInputRecoveryEntriesInWorker(target),
+      "sidecars.delivery-entries",
+    );
     for (const { sessionKey, entry } of entries) {
       const scope = {
         ...target,
@@ -134,7 +136,10 @@ export async function recoverSessionSendDeliveries(
       let before: number | undefined;
       do {
         assertCurrent();
-        const page = await retry(() => readSessionSendRecoveryPage(scope, { before }));
+        const page = await retry(
+          () => readSessionSendRecoveryPage(scope, { before }),
+          "sidecars.delivery-history",
+        );
         pending.unshift(...page.items);
         before = page.nextBefore;
       } while (before !== undefined);
@@ -197,7 +202,7 @@ export async function recoverSessionSendDeliveries(
                   storePath: loaded.readSource?.path ?? loaded.storePath,
                   entry: loaded.store[loaded.canonicalKey],
                 };
-                if (!matches(result, endpoint) || result.entry?.archivedAt) {
+                if (!matches(result, endpoint)) {
                   throw new SessionSendEndpointChangedError(side, endpoint, result);
                 }
                 return result;
@@ -217,6 +222,12 @@ export async function recoverSessionSendDeliveries(
                   destination,
                   "Session delivery target does not own this input",
                 );
+              }
+              if (source.entry?.archivedAt || destination.entry?.archivedAt) {
+                // Archive stops work without replacing the transcript. Retain the
+                // cancelled receipt, but do not create a misleading failure notice.
+                await discardSessionPendingInput(scope, input.runId, assertCurrent);
+                return;
               }
               const callGateway: AgentToolGatewayRequestCaller = async () => {
                 // Exact endpoint lineage is already loaded above. Recovery cannot
@@ -266,7 +277,7 @@ export async function recoverSessionSendDeliveries(
             } finally {
               communication?.close();
             }
-          });
+          }, "sidecars.delivery-replay");
         } catch (error) {
           if (signal.aborted) {
             return;
@@ -295,7 +306,7 @@ export async function recoverSessionSendDeliveries(
             ...new Set((getRetryAttemptErrors(error) ?? [error]).map(formatErrorMessageWithCode)),
           ];
           context.logGateway.warn(
-            `Session delivery recovery blocked after ${attempts} attempts: ${formatErrorMessageForDisplay(error, causes.join("; "))} ${JSON.stringify({ sessionKeyHash: sessionKeyHash(sessionKey), inputId: input.id, ageMs: Math.max(0, Date.now() - input.acceptedAt) })}`,
+            `Session delivery recovery blocked after ${attempts} attempts: ${formatErrorMessageForDisplay(error, causes.join("; "))} ${JSON.stringify({ sessionKeyHash: sha256HexPrefixCore(sessionKey, 16), inputId: input.id, ageMs: Math.max(0, Date.now() - input.acceptedAt) })}`,
           );
         }
       }
@@ -308,8 +319,7 @@ export async function recoverSessionSendDeliveries(
           displayed
             .map(({ sourceSessionKey, reason, attempts }) => {
               const description = {
-                "endpoint-replaced":
-                  "the source or destination session was reset, archived, or replaced",
+                "endpoint-replaced": "the source or destination session was reset or replaced",
                 "permission-denied": "current session permissions do not allow automatic delivery",
                 "transient-admission": `the Gateway was still unavailable after ${attempts} automatic attempts`,
                 "store-unavailable": "session storage was unavailable",

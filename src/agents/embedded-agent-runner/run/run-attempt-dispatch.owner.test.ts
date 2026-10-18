@@ -565,7 +565,6 @@ it.each(dispatchCases)(
         getLifecycleGeneration: () => lifecycleGeneration,
         getParams: () => params,
         globalLane: "owner-dispatch-global",
-        sessionLane: "owner-dispatch-session",
         initialQueuedLifecycleGeneration: lifecycleGeneration,
         setLifecycleGeneration: (value) => {
           lifecycleGeneration = value;
@@ -990,14 +989,18 @@ it.each(dispatchCases)(
           expect(received.runtimeContextFragments).toEqual([
             { kind: "runtime-instruction", text: "Existing context." },
           ]);
+          const { text, resumableText } = received.currentInboundContext ?? {};
           if (finalizer !== "string") {
-            expect(received.currentInboundContext?.text).toContain("Delivery context.");
-            expect(received.currentInboundContext?.text.match(/Delivery context/g)).toHaveLength(1);
-            expect(received.currentInboundContext?.resumableText).toContain("Delivery context.");
+            expect(text).toContain("Delivery context.");
+            expect(text?.match(/Delivery context/g)).toHaveLength(1);
+            expect(resumableText).toContain("Delivery context.");
           } else {
-            expect(received.currentInboundContext?.text).toBe("Existing inbound context.");
+            expect(text).toBe("Existing inbound context.\n\nExisting context.");
+            expect(resumableText).toBe("Existing resumed context.\n\nExisting context.");
           }
-          expect(received.currentInboundContext?.text).toContain("Existing inbound context.");
+          expect(text).toContain("Existing inbound context.");
+          expect(text?.match(/Existing context\./g)).toHaveLength(1);
+          expect(resumableText?.match(/Existing context\./g)).toHaveLength(1);
         }
       }
     });

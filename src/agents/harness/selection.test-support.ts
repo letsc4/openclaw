@@ -18,6 +18,7 @@ export function createHarnessAttemptParams(
 ): EmbeddedRunAttemptParams {
   return {
     admittedRunContext,
+    agentId: "main",
     prompt: "hello",
     sessionId: "session-1",
     runId: admittedRunContext.operationalRunInstance.runId,
@@ -99,6 +100,7 @@ export const privateHarnessParamCases = [
   { field: "resolveRuntimeContextForTools", value: () => [] },
   { field: "completionCheck", value: { unfinishedPlan: true, checked: false } },
   { field: "preparedSessionTarget", value: { target: {}, assertCurrent: () => undefined } },
+  { field: "bindWatchdogAttempt", value: () => undefined },
   { field: "onContextAccountingEvent", value: () => undefined },
   { field: "onCompactionRequestBudget", value: () => undefined },
   { field: "prepareContinuationRetryCount", value: () => undefined },

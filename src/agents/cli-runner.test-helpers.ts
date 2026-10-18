@@ -162,17 +162,13 @@ type PreparedCliRunContextOverrides = {
   backend?: Partial<PreparedCliRunContext["preparedBackend"]["backend"]>;
   preparedEnv?: PreparedCliRunContext["preparedBackend"]["env"];
   resolveExecutionArgs?: PreparedCliRunContext["backendResolved"]["resolveExecutionArgs"];
-  toolAvailabilityEnforcement?: PreparedCliRunContext["backendResolved"]["toolAvailabilityEnforcement"];
   config?: PreparedCliRunContext["params"]["config"];
-  mcpConfigHash?: string;
-  mcpResumeHash?: string;
   mcpDeliveryCapture?: boolean;
   skillsSnapshot?: PreparedCliRunContext["params"]["skillsSnapshot"];
   thinkLevel?: PreparedCliRunContext["params"]["thinkLevel"];
   fastMode?: PreparedCliRunContext["params"]["fastMode"];
   executionMode?: PreparedCliRunContext["params"]["executionMode"];
   cliToolAvailability?: PreparedCliRunContext["params"]["cliToolAvailability"];
-  emitCommentaryText?: boolean;
   workspaceDir?: string;
   systemPrompt?: string;
   timeoutMs?: number;
@@ -253,7 +249,6 @@ export function buildPreparedCliRunContext(
       fastMode: overrides.fastMode,
       executionMode: overrides.executionMode,
       cliToolAvailability: overrides.cliToolAvailability,
-      emitCommentaryText: overrides.emitCommentaryText,
       onSuccessfulAuthBinding: overrides.onSuccessfulAuthBinding,
       timeoutMs: overrides.timeoutMs ?? 1_000,
       runId,
@@ -274,8 +269,7 @@ export function buildPreparedCliRunContext(
             : "openai",
       resolveExecutionArgs: overrides.resolveExecutionArgs,
       toolAvailabilityEnforcement:
-        overrides.toolAvailabilityEnforcement ??
-        (provider === "google-gemini-cli" ? "prepare-execution" : "execution-args"),
+        provider === "google-gemini-cli" ? "prepare-execution" : "execution-args",
       runtimeArtifact: overrides.runtimeArtifact,
     },
     executionTarget: resolveCliExecutionTarget({
@@ -285,8 +279,6 @@ export function buildPreparedCliRunContext(
     preparedBackend: {
       backend,
       env: overrides.preparedEnv ?? {},
-      ...(overrides.mcpConfigHash ? { mcpConfigHash: overrides.mcpConfigHash } : {}),
-      ...(overrides.mcpResumeHash ? { mcpResumeHash: overrides.mcpResumeHash } : {}),
     },
     reusableCliSession: { mode: "none" },
     hadSessionFile: false,
