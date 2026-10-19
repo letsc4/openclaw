@@ -283,7 +283,8 @@ it.each(dispatchCases)(
         agents: {
           ownership: "explicit" as const,
           entries: {
-            main: {},
+            main:
+              sandboxSessionKey === "agent:main:policy" ? { tools: { deny: ["web_search"] } } : {},
             work: { sandbox: { mode: realManagedWorkspace ? ("off" as const) : ("all" as const) } },
           },
           defaults: {
@@ -399,18 +400,16 @@ it.each(dispatchCases)(
           { sessionId: `${agentId}-global`, updatedAt: 1 },
         );
       }
-      const finalizePromptForResolvedTools = vi.fn(
+      const finalize = vi.fn(
         ({ prompt, messageToolAvailable }: { prompt: string; messageToolAvailable: boolean }) => {
           expect(messageToolAvailable).toBe(false);
           return `${prompt}:finalized`;
         },
       );
-      const resolveRuntimeContextForTools = vi.fn(
-        ({ messageToolAvailable }: { messageToolAvailable: boolean }) => {
-          expect(messageToolAvailable).toBe(false);
-          return [{ kind: "runtime-instruction" as const, text: "Delivery context." }];
-        },
-      );
+      const resolveContext = vi.fn((context: { messageToolAvailable: boolean }) => {
+        expect(context.messageToolAvailable).toBe(false);
+        return [{ kind: "runtime-instruction" as const, text: "Delivery context." }];
+      });
       const admission = prepareAgentRunAdmission({
         cfg: config,
         facts: {
@@ -537,8 +536,8 @@ it.each(dispatchCases)(
               runtimeContextFragments: [
                 { kind: "runtime-instruction" as const, text: "Existing context." },
               ],
-              ...(finalizer !== "context" ? { finalizePromptForResolvedTools } : {}),
-              ...(finalizer !== "string" ? { resolveRuntimeContextForTools } : {}),
+              ...(finalizer !== "context" ? { finalizePromptForResolvedTools: finalize } : {}),
+              ...(finalizer !== "string" ? { resolveRuntimeContextForTools: resolveContext } : {}),
             }
           : {}),
         ...(skillsSnapshot ? { skillsSnapshot } : {}),
@@ -915,6 +914,12 @@ it.each(dispatchCases)(
           storePath: undefined,
         });
         expect.soft(runAttempt.mock.calls[0]?.[0].oneShotCliRun).toBe(oneShotCliRun);
+        if (sandboxSessionKey === "agent:main:policy") {
+          expect(runAttempt.mock.calls[0]?.[0].preparedWebSearchPolicy).toMatchObject({
+            allowed: false,
+            persistentAllowed: false,
+          });
+        }
         if (preparedAuth) {
           expect(runAttempt.mock.calls[0]?.[0].model.headers).toEqual({
             Authorization: preparedAuth === "explicit-header" ? "Bearer runtime-token" : null,
@@ -972,18 +977,14 @@ it.each(dispatchCases)(
           expect(runAttempt).toHaveBeenCalledOnce();
           const [received] = runAttempt.mock.calls[0]!;
           if (finalizer !== "context") {
-            expect(finalizePromptForResolvedTools).toHaveBeenCalledBefore(runAttempt);
+            expect(finalize).toHaveBeenCalledBefore(runAttempt);
           }
           if (finalizer !== "string") {
-            expect(resolveRuntimeContextForTools).toHaveBeenCalledBefore(runAttempt);
+            expect(resolveContext).toHaveBeenCalledBefore(runAttempt);
           }
           expect(received.prompt).toBe(finalizer === "context" ? "hello" : "hello:finalized");
-          expect(finalizePromptForResolvedTools).toHaveBeenCalledTimes(
-            finalizer === "context" ? 0 : 1,
-          );
-          expect(resolveRuntimeContextForTools).toHaveBeenCalledTimes(
-            finalizer === "string" ? 0 : 1,
-          );
+          expect(finalize).toHaveBeenCalledTimes(finalizer === "context" ? 0 : 1);
+          expect(resolveContext).toHaveBeenCalledTimes(finalizer === "string" ? 0 : 1);
           expect(received.transcriptPrompt).toBe("hello");
           expect(received.finalizePromptForResolvedTools).toBeUndefined();
           expect(received.runtimeContextFragments).toEqual([
