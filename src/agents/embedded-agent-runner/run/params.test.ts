@@ -5,7 +5,8 @@ import type {
 } from "../../../plugin-sdk/agent-harness-runtime.js";
 import type { PluginRuntimeCore } from "../../../plugins/runtime/types-core.js";
 import type { RunCliAgentParams } from "../../cli-runner/types.js";
-import type { ResolvedToolPromptFinalizer, RunEmbeddedAgentParams } from "./params.js";
+import type { ResolvedToolPromptFinalizer } from "../../resolved-tool-prompt.types.js";
+import type { RunEmbeddedAgentParams } from "./params.js";
 import type { EmbeddedRunAttemptParams } from "./types.js";
 
 type RuntimeRun = Parameters<PluginRuntimeCore["agent"]["runEmbeddedAgent"]>[0];

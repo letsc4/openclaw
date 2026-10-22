@@ -19,6 +19,7 @@ import type {
 } from "../../../sessions/user-turn-transcript.types.js";
 import { prepareSystemAgentRunAdmission } from "../../admitted-run-context.js";
 import { forgetPromptBuildDrainCacheForRun } from "../../plugin-turn-context.js";
+import type { ResolvedToolPromptFinalizer } from "../../resolved-tool-prompt.types.js";
 import type { AgentMessage } from "../../runtime/index.js";
 import { testModel } from "../../sessions/agent-session-loop-correctness.test-support.js";
 import { installModelPromptProjection } from "./attempt-llm-boundary.js";
@@ -26,7 +27,6 @@ import {
   prepareEmbeddedAttemptPromptAssembly,
   prepareEmbeddedAttemptPromptContext,
 } from "./attempt-prompt-build.js";
-import type { ResolvedToolPromptFinalizer } from "./params.js";
 
 // mock-isolation: Keep persistent plugin injection queues outside this synthetic cron turn.
 vi.mock("../../../plugins/host-hook-state.js", () => ({

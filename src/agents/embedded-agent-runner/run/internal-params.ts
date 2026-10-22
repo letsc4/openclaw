@@ -3,6 +3,7 @@ import type { SessionAdmissionTransition } from "../../../config/sessions/sessio
 import type { SessionTranscriptTargetBinding } from "../../../config/sessions/transcript-target-binding.js";
 import type { InternalSessionEntry } from "../../../config/sessions/types.js";
 import type { Model } from "../../../llm/types.js";
+import type { ReplyExecutionSelection } from "../../../sessions/session-controller.execution-selection.js";
 import type { SessionControllerWatchdogAttempt } from "../../../sessions/session-controller.watchdog.js";
 import type { PreparedTtsPreferences } from "../../../tts/tts-preferences.js";
 import type { RunCliAgentParams } from "../../cli-runner/types.js";
@@ -53,6 +54,8 @@ export type RunEmbeddedAgentInternalParams = RunEmbeddedAgentParams & {
   resolveRuntimeContextForTools?: (params: {
     messageToolAvailable: boolean;
   }) => RuntimeContextFragment[];
+  /** Original admitted settings, retained by the host across private runtime selection. */
+  executionSelection?: ReplyExecutionSelection;
   /** The logical run already invoked model routing before preparing its candidate chain. */
   resolvedModelSelection?: ResolvedRunEntryModelSelection;
   preparedTtsPreferences?: PreparedTtsPreferences;
@@ -110,6 +113,7 @@ export type EmbeddedRunAttemptInternalParams = EmbeddedRunAttemptParams &
     | "resolveRuntimeContextForTools"
     | "systemAgentTool"
     | "runCleanupSettlement"
+    | "executionSelection"
   > & {
     bindWatchdogAttempt?: (attempt: SessionControllerWatchdogAttempt) => void;
     /** The dispatch owner already selected this target, including any compaction successor. */

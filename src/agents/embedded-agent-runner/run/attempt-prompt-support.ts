@@ -15,6 +15,7 @@ import {
 import type { createCacheTrace } from "../../cache-trace.js";
 import { createAgentHarnessPromptToolPolicy } from "../../harness/prompt-tool-policy.js";
 import { projectRuntimeContextFragments } from "../../internal-runtime-context.js";
+import type { ResolvedToolPromptFinalizer } from "../../resolved-tool-prompt.types.js";
 import type { AgentMessage } from "../../runtime/index.js";
 import type { AgentSession } from "../../sessions/index.js";
 import { normalizeToolPolicyName } from "../../tool-policy.js";
@@ -24,7 +25,6 @@ import { buildEmbeddedAgentHookContext } from "./agent-hook-context.js";
 import { summarizeSessionContext } from "./attempt-context-summary.js";
 import { resolvePromptSubmissionSkipReason } from "./attempt-prompt-submit.js";
 import type { RunEmbeddedAgentInternalParams } from "./internal-params.js";
-import type { ResolvedToolPromptFinalizer } from "./params.js";
 import { appendCurrentInboundContext } from "./runtime-context-prompt.js";
 import type { EmbeddedRunAttemptParams } from "./types.js";
 
