@@ -8,7 +8,7 @@ import type {
   EmbeddedAgentRunMeta,
   EmbeddedAgentRunPayload,
 } from "../../agents/embedded-agent-runner/result.types.js";
-import type { RunEmbeddedAgentInternalParams } from "../../agents/embedded-agent-runner/run/internal-params.js";
+import type { RuntimeContextFragment } from "../../agents/internal-runtime-context.js";
 import type { SessionEntryCreationOperation } from "../../config/sessions/session-accessor.sqlite-entry-cache.types.js";
 import type { SessionEntry } from "../../config/sessions/types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
@@ -163,7 +163,9 @@ export type ScheduledSessionAutomation = {
   beforeDeliver?: () => Promise<void>;
   assertDeliveryCurrent?: () => void;
   sourceDelivery?: SourceDeliveryPlan;
-  resolveRuntimeContextForTools?: RunEmbeddedAgentInternalParams["resolveRuntimeContextForTools"];
+  resolveRuntimeContextForTools?: (params: {
+    messageToolAvailable: boolean;
+  }) => RuntimeContextFragment[];
 };
 
 /** Producer callbacks stay bound to the queued occurrence, not a later dispatcher. */
